@@ -1,0 +1,9 @@
+vault
+kafka*/
+downloads
+*.hcl
+*.pem
+*.csr
+*.jks
+*.log
+*.pid
