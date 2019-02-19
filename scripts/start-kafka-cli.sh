@@ -20,8 +20,8 @@ _main() {
         exit 1
     fi
 
-    _configure_producer
-    _configure_consumer
+    _configure_producer "$@"
+    _configure_consumer "$@"
     _start_consumer_and_producer "$@"
     
 }

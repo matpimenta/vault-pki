@@ -22,6 +22,7 @@ _main() {
     _start_zookeeper
     _configure_kafka_acl
     _start_kafka
+    _start_manager
 }
 
 _main "$@"

@@ -79,12 +79,12 @@ _download_vault() {
 
     local FILENAME=vault_${VAULT_VERSION}_${OS}_amd64.zip
 
-    echo "Downloading Vault ${VAULT_VERSION}"
+    echo "---> Downloading Vault ${VAULT_VERSION}"
 
     if [ ! -f "${DOWNLOAD_HOME}/${FILENAME}" ]; then
         wget https://releases.hashicorp.com/vault/${VAULT_VERSION}/${FILENAME} -P ${DOWNLOAD_HOME}
     else
-        echo "File downloaded. Skipping..."
+        echo "---> File downloaded. Skipping..."
     fi
 
     if [ ! -f "${VAULT_BIN}" ]; then
@@ -97,12 +97,12 @@ _download_kafka() {
     local FILE_PREFIX=kafka_${SCALA_VERSION}-${KAFKA_VERSION}
     local FILENAME=${FILE_PREFIX}.tgz
 
-    echo "Downloading Kafka ${KAFKA_VERSION}"
+    echo "---> Downloading Kafka ${KAFKA_VERSION}"
 
     if [ ! -f "${DOWNLOAD_HOME}/${FILENAME}" ]; then
         wget http://www.mirrorservice.org/sites/ftp.apache.org/kafka/${KAFKA_VERSION}/${FILENAME} -P ${DOWNLOAD_HOME}
     else
-        echo "File downloaded. Skipping..."
+        echo "---> File downloaded. Skipping..."
     fi
 
     if [ ! -d "${__root}/${FILE_PREFIX}" ]; then
@@ -112,11 +112,11 @@ _download_kafka() {
 }
 
 _pause() {
-    read -n1 -r -p "Press any key to continue..." key
+    read -n1 -r -p "---> Press any key to continue..." key
 }
 
 _vault_start() {
-    "---> Starting Vault Server"
+    echo "---> Starting Vault Server"
     if [ "${USE_TMUX}" == "true" ]; then 
         tmux new-window -d -n vault "${VAULT_BIN} server -dev"
         tmux list-panes -t vault -F '#{pane_pid}' > ${VAULT_PID}
@@ -152,7 +152,7 @@ _vault_configure() {
 _vault_configure_root_ca() {
     _vault_init_connection
 
-    "---> Configuring Root CA"
+    echo "---> Configuring Root CA"
 
     vault secrets enable -path root-ca pki
     vault secrets tune -max-lease-ttl=8760h root-ca
@@ -169,7 +169,7 @@ _vault_configure_root_ca() {
 _vault_configure_intermediary_ca() {
     _vault_init_connection
 
-    "---> Configuring Intermediary CA"
+    echo "---> Configuring Intermediary CA"
 
     vault secrets enable -path kafka-int-ca pki
     vault secrets tune -max-lease-ttl=8760h kafka-int-ca
@@ -187,13 +187,13 @@ _vault_configure_intermediary_ca() {
 }
 
 _vault_configure_pki_roles() {
-    "---> Configuring kafka-client PKI role"
+    echo "---> Configuring kafka-client PKI role"
 
     vault write kafka-int-ca/roles/kafka-client \
         allowed_domains=clients.kafka.acme.com \
         allow_subdomains=true max_ttl=72h
 
-    "---> Configuring kafka-server PKI role"
+    echo "---> Configuring kafka-server PKI role"
 
     vault write kafka-int-ca/roles/kafka-server \
         allowed_domains=servers.kafka.acme.com \
@@ -202,7 +202,7 @@ _vault_configure_pki_roles() {
 }
 
 _vault_configure_token_roles() {
-    "---> Configuring kafka-client token role"
+    echo "---> Configuring kafka-client token role"
 
     cat > kafka-client.hcl <<EOF
 path "kafka-int-ca/issue/kafka-client" {
@@ -214,7 +214,7 @@ EOF
     vault write auth/token/roles/kafka-client \
         allowed_policies=kafka-client period=24h
 
-    "---> Configuring kafka-server token role"
+    echo "---> Configuring kafka-server token role"
 
     cat > kafka-server.hcl <<EOF
 path "kafka-int-ca/issue/kafka-server" {
@@ -232,7 +232,7 @@ EOF
 _create_vault_token() {
     local ROLE=$1
     _unset_vault_token
-    "---> Creating new Vault Token with role ${ROLE}"
+    echo "---> Creating new Vault Token with role ${ROLE}"
 
     export VAULT_TOKEN=$(vault token create -field=token -role $ROLE)
 }
@@ -242,7 +242,7 @@ _unset_vault_token() {
 }
 
 _create_kafka_truststore() {
-    "---> Creating Kafka Trust store"
+    echo "---> Creating Kafka Trust store"
 
     if [ -f kafka-truststore.jks ]; then
         rm kafka-truststore.jks
@@ -258,7 +258,7 @@ _configure_kafka_tls() {
     _vault_init_connection
     cd $KAFKA_HOME
     for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
-        "---> Configuring Kafka Node ${NODE}"
+        echo "---> Configuring Kafka Node ${NODE}"
         _create_vault_token "kafka-server"
 
         vault write -field certificate kafka-int-ca/issue/kafka-server \
@@ -299,7 +299,7 @@ EOF
 }
 
 _start_zookeeper() {
-    "---> Starting Zookeeper"
+    echo "---> Starting Zookeeper"
     if [ "${USE_TMUX}" == "true" ]; then 
         tmux new-window -d -n zookeeper "$KAFKA_BIN/zookeeper-server-start.sh $KAFKA_HOME/config/zookeeper.properties"
     else 
@@ -311,13 +311,13 @@ _start_zookeeper() {
 
 _configure_kafka_acl() {
     for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
-        "---> Configuring Kafka ACL for Node ${NODE}"
+        echo "---> Configuring Kafka ACL for Node ${NODE}"
         $KAFKA_BIN/kafka-acls.sh --authorizer-properties zookeeper.connect=localhost:2181 \
             --add --allow-principal User:CN=node-${NODE}.servers.kafka.acme.com \
             --operation ALL --topic '*' --cluster
     done
 
-    "---> Configuring Kafka ACL for Client my-client"
+    echo "---> Configuring Kafka ACL for Client tenant-1"
 
     $KAFKA_BIN/kafka-acls.sh --authorizer-properties zookeeper.connect=localhost:2181 \
         --add --allow-principal User:CN=tenant-1.clients.kafka.acme.com \
