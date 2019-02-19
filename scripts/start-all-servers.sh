@@ -15,7 +15,13 @@ __root="$(cd "$(dirname "${__dir}")" && pwd)"
 source ${__dir}/main.sh
 
 _main() {
-    _start_producer "$@"
+    _vault_start
+    _vault_configure 
+    _create_kafka_truststore
+    _configure_kafka_tls
+    _start_zookeeper
+    _configure_kafka_acl
+    _start_kafka
 }
 
 _main "$@"

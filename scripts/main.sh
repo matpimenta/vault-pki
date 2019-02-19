@@ -23,6 +23,7 @@ SCALA_VERSION="2.11"
 KAFKA_HOME=${__root}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}
 KAFKA_BIN=${KAFKA_HOME}/bin
 KAFKA_NODE_SIZE=3
+KAFKA_DEFAULT_TOPIC=tenant-1
 
 DEFAULT_PASSWORD=changeme
 
@@ -115,6 +116,7 @@ _pause() {
 }
 
 _vault_start() {
+    "---> Starting Vault Server"
     if [ "${USE_TMUX}" == "true" ]; then 
         tmux new-window -d -n vault "${VAULT_BIN} server -dev"
         tmux list-panes -t vault -F '#{pane_pid}' > ${VAULT_PID}
@@ -129,10 +131,10 @@ _vault_start() {
 
 _wait_for_vault() {
     while ! vault status 2>&1 > /dev/null; do
-        echo "Waiting for Vault to be up..."
+        echo "---> Waiting for Vault to be up..."
         sleep 1
     done
-    echo "Vault is up"
+    echo "--> Vault is up!"
 }
 
 _vault_init_connection() {
@@ -150,6 +152,8 @@ _vault_configure() {
 _vault_configure_root_ca() {
     _vault_init_connection
 
+    "---> Configuring Root CA"
+
     vault secrets enable -path root-ca pki
     vault secrets tune -max-lease-ttl=8760h root-ca
     vault write -field certificate root-ca/root/generate/internal \
@@ -164,6 +168,8 @@ _vault_configure_root_ca() {
 
 _vault_configure_intermediary_ca() {
     _vault_init_connection
+
+    "---> Configuring Intermediary CA"
 
     vault secrets enable -path kafka-int-ca pki
     vault secrets tune -max-lease-ttl=8760h kafka-int-ca
@@ -181,9 +187,13 @@ _vault_configure_intermediary_ca() {
 }
 
 _vault_configure_pki_roles() {
+    "---> Configuring kafka-client PKI role"
+
     vault write kafka-int-ca/roles/kafka-client \
         allowed_domains=clients.kafka.acme.com \
         allow_subdomains=true max_ttl=72h
+
+    "---> Configuring kafka-server PKI role"
 
     vault write kafka-int-ca/roles/kafka-server \
         allowed_domains=servers.kafka.acme.com \
@@ -192,6 +202,8 @@ _vault_configure_pki_roles() {
 }
 
 _vault_configure_token_roles() {
+    "---> Configuring kafka-client token role"
+
     cat > kafka-client.hcl <<EOF
 path "kafka-int-ca/issue/kafka-client" {
   capabilities = ["update"]
@@ -201,6 +213,8 @@ EOF
     vault policy write kafka-client kafka-client.hcl
     vault write auth/token/roles/kafka-client \
         allowed_policies=kafka-client period=24h
+
+    "---> Configuring kafka-server token role"
 
     cat > kafka-server.hcl <<EOF
 path "kafka-int-ca/issue/kafka-server" {
@@ -218,6 +232,8 @@ EOF
 _create_vault_token() {
     local ROLE=$1
     _unset_vault_token
+    "---> Creating new Vault Token with role ${ROLE}"
+
     export VAULT_TOKEN=$(vault token create -field=token -role $ROLE)
 }
 
@@ -226,6 +242,8 @@ _unset_vault_token() {
 }
 
 _create_kafka_truststore() {
+    "---> Creating Kafka Trust store"
+
     if [ -f kafka-truststore.jks ]; then
         rm kafka-truststore.jks
     fi
@@ -240,6 +258,7 @@ _configure_kafka_tls() {
     _vault_init_connection
     cd $KAFKA_HOME
     for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
+        "---> Configuring Kafka Node ${NODE}"
         _create_vault_token "kafka-server"
 
         vault write -field certificate kafka-int-ca/issue/kafka-server \
@@ -280,8 +299,9 @@ EOF
 }
 
 _start_zookeeper() {
+    "---> Starting Zookeeper"
     if [ "${USE_TMUX}" == "true" ]; then 
-        tmux new-window -d -n zookepper "$KAFKA_BIN/zookeeper-server-start.sh $KAFKA_HOME/config/zookeeper.properties"
+        tmux new-window -d -n zookeeper "$KAFKA_BIN/zookeeper-server-start.sh $KAFKA_HOME/config/zookeeper.properties"
     else 
         mkdir -p $KAFKA_HOME/logs
         $KAFKA_BIN/zookeeper-server-start.sh $KAFKA_HOME/config/zookeeper.properties 2>&1 > $KAFKA_HOME/logs/zookeeper.log &
@@ -291,14 +311,17 @@ _start_zookeeper() {
 
 _configure_kafka_acl() {
     for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
+        "---> Configuring Kafka ACL for Node ${NODE}"
         $KAFKA_BIN/kafka-acls.sh --authorizer-properties zookeeper.connect=localhost:2181 \
             --add --allow-principal User:CN=node-${NODE}.servers.kafka.acme.com \
             --operation ALL --topic '*' --cluster
     done
 
+    "---> Configuring Kafka ACL for Client my-client"
+
     $KAFKA_BIN/kafka-acls.sh --authorizer-properties zookeeper.connect=localhost:2181 \
         --add --allow-principal User:CN=tenant-1.clients.kafka.acme.com \
-        --operation ALL --topic '*' --group '*'
+        --operation ALL --topic ${KAFKA_DEFAULT_TOPIC} --group '*'
 }
 
 _start_kafka() {
@@ -308,8 +331,8 @@ _start_kafka() {
     if [ "${USE_TMUX}" == "true" ]; then 
         tmux new-window -n kafka -d 'sleep 10'
         for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
-                JMX_PORT=${NODE}9094 
-                tmux split-window -d -t kafka "bash -c 'export JMX_PORT=${JMX_PORT}; $KAFKA_BIN/kafka-server-start.sh $KAFKA_HOME/config/server-${NODE}.properties'"
+                local CMD="$KAFKA_BIN/kafka-server-start.sh $KAFKA_HOME/config/server-${NODE}.properties"
+                tmux split-window -d -t kafka "bash -c '${CMD}'"
         done
     else
         for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
@@ -399,23 +422,26 @@ EOF
 }
 
 _start_consumer_and_producer() {
+    local KAFKA_TOPIC=${1:-$($KAFKA_DEFAULT_TOPIC)}
     tmux new-window -n consumer-producer 'sleep 1'
     if [ "${USE_TMUX}" == "true" ]; then 
-        tmux split-pane -d -t consumer-producer "$KAFKA_BIN/kafka-console-consumer.sh --topic test --bootstrap-server localhost:19093 \
+        tmux split-pane -d -t consumer-producer "$KAFKA_BIN/kafka-console-consumer.sh --topic ${KAFKA_TOPIC} --bootstrap-server localhost:19093 \
             --consumer.config $KAFKA_HOME/config/consumer-1.properties"
-        tmux split-pane -d -t consumer-producer "$KAFKA_BIN/kafka-console-producer.sh --topic test --broker-list localhost:19093 \
+        tmux split-pane -d -t consumer-producer "$KAFKA_BIN/kafka-console-producer.sh --topic ${KAFKA_TOPIC} --broker-list localhost:19093 \
             --producer.config $KAFKA_HOME/config/producer-1.properties"
     fi
 
 }
 
 _start_consumer() {
-    $KAFKA_BIN/kafka-console-consumer.sh --topic test --bootstrap-server localhost:19093 \
+    local KAFKA_TOPIC=${1:-$($KAFKA_DEFAULT_TOPIC)}
+    $KAFKA_BIN/kafka-console-consumer.sh --topic ${KAFKA_TOPIC} --bootstrap-server localhost:19093 \
         --consumer.config $KAFKA_HOME/config/consumer-1.properties
 }
 
 _start_producer() {
-    $KAFKA_BIN/kafka-console-producer.sh --topic test --broker-list localhost:19093 \
+    local KAFKA_TOPIC=${1:-$($KAFKA_DEFAULT_TOPIC)}
+    $KAFKA_BIN/kafka-console-producer.sh --topic ${KAFKA_TOPIC} --broker-list localhost:19093 \
         --producer.config $KAFKA_HOME/config/producer-1.properties
 }
 

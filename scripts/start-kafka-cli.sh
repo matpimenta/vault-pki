@@ -22,7 +22,7 @@ _main() {
 
     _configure_producer
     _configure_consumer
-    _start_consumer_and_producer
+    _start_consumer_and_producer "$@"
     
 }
 
