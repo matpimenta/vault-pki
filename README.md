@@ -43,7 +43,7 @@ __Alternative__ - Kafka Clients in one window (tmux required)
 
 ### Kafka Management UI ###
 
-    scripts/start-management-ui.sh
+    scripts/start-manager.sh
 
 The server should be available at <http://localhost:9000>
 
