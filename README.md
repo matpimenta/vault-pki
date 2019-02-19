@@ -6,8 +6,8 @@
 * wget  
 * Openssl or LibreSSL
 * Java >= 8
+* docker
 * tmux (Optional)
-* docker (Optional)
 
 ## TL;DR ##
 
@@ -44,6 +44,8 @@ __Alternative__ - Kafka Clients in one window (tmux required)
 ### Kafka Management UI ###
 
     scripts/start-management-ui.sh
+
+The server should be available at <http://localhost:9000>
 
 ### Shutdown ###
 

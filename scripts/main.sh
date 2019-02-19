@@ -135,7 +135,7 @@ _vault_start() {
 }
 
 _wait_for_vault() {
-    while ! vault status 2>&1 > /dev/null; do
+    while ! vault status 2> /dev/null > /dev/null; do
         echo "---> Waiting for Vault to be up..."
         sleep 1
     done
@@ -310,7 +310,7 @@ _start_zookeeper() {
     else 
         mkdir -p $KAFKA_HOME/logs
         $KAFKA_BIN/zookeeper-server-start.sh $KAFKA_HOME/config/zookeeper.properties 2>&1 > $KAFKA_HOME/logs/zookeeper.log &
-        sleep 10
+        sleep 1
     fi
 }
 
@@ -365,6 +365,7 @@ _start_kafka() {
 
 _shutdown_vault() {
     if [ -f "${VAULT_PID}" ]; then
+        echo "---> Vault"
         kill $(cat ${VAULT_PID})
         rm ${VAULT_PID}
     fi
@@ -372,12 +373,14 @@ _shutdown_vault() {
 
 _shutdown_kafka() {
     for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
+        echo "---> Stopping Kafka Node ${NODE}"
         $KAFKA_BIN/kafka-server-stop.sh $KAFKA_HOME/config/server-${NODE}.properties &
         rm -rf /tmp/kafka-logs-$NODE
     done
 }
 
 _shutdown_zookeeper() {
+    echo "---> Zookeeper"
     $KAFKA_BIN/zookeeper-server-stop.sh $KAFKA_HOME/config/zookeeper.properties
     rm -rf /tmp/zookeeper
 }
@@ -491,16 +494,17 @@ _start_manager() {
 
     if [ "${OS}" == "darwin" ]; then
         ZK_HOST="docker.for.mac.host.internal"
-        NETWORK="-p 9000:9000"
+        NETWORK="--publish=9000:9000"
     fi
 
     if [ "${USE_TMUX}" == "true" ]; then 
         tmux new-window -n manager -d "docker run --name kafka-manager -it --rm ${NETWORK} -e ZK_HOSTS=\"${ZK_HOST}:2181\" sheepkiller/kafka-manager"
     else
-        docker run --name kafka-manager -it --rm ${NETWORK} -e ZK_HOSTS="${ZK_HOST}:2181" sheepkiller/kafka-manager
+        docker run --name kafka-manager -d --rm ${NETWORK} -e ZK_HOSTS="${ZK_HOST}:2181" sheepkiller/kafka-manager
     fi
 }
 
 _shutdown_manager() {
-    docker stop kafka-manager
+    echo "---> Stopping Manager"
+    docker stop kafka-manager 2> /dev/null > /dev/null || true
 }
