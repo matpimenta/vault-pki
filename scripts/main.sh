@@ -30,8 +30,8 @@ DEFAULT_PASSWORD=changeme
 _clean_up() {
     rm -rf ${DOWNLOAD_HOME}
     rm -rf kafka_${SCALA_VERSION}-${KAFKA_VERSION}
-    rm vault
-    rm *.hcl *.pem *.csr *.jks *.log
+    rm vault 2> /dev/null && true
+    rm *.hcl *.pem *.csr *.jks *.log 2> /dev/null && true
 }
 
 _download_dependencies() {
