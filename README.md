@@ -5,9 +5,11 @@ Prerequisities
 --------------
 
 * Linux / MacOS
-* wget
+* wget  
 * Openssl or LibreSSL
 * Java >= 8
+* tmux (Optional)
+* docker (Optional)
 
 Configure Vault and Kafka
 -------------------------
@@ -22,6 +24,16 @@ Kafka Clients
     scripts/configure-kafka-cli.sh
     scripts/start-consumer.sh
     scripts/start-producer.sh
+
+Kafka Clients in one window (tmux required)
+-------------------------------------------
+
+    scripts/start-kafka-cli.sh
+
+Kafka Management UI
+-------------------
+
+    scripts/start-management-ui.sh
 
 Shutdown
 --------

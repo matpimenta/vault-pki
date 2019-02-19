@@ -13,7 +13,6 @@ __base="$(basename ${__file} .sh)"
 __root="$(cd "$(dirname "${__dir}")" && pwd)"
 
 DOWNLOAD_HOME="${__root}/downloads"
-OS=""
 
 VAULT_VERSION="1.0.3"
 VAULT_BIN="${__root}/vault"
@@ -38,11 +37,14 @@ _detect_os() {
     echo "${OS}"
 }
 
+OS=$(_detect_os)
+
 _detect_tmux() {
-    if [ "$TMUX" != "" ]; then
-        echo "true"
-    else 
+    local TMUX_TEST=${TMUX:-}
+    if [ "$TMUX_TEST" == "" ]; then
         echo "false"
+    else 
+        echo "true"
     fi
 }
 
@@ -56,8 +58,6 @@ _clean_up() {
 }
 
 _download_dependencies() {
-    OS=$(_detect_os)
-    echo "OS ${OS}"
     _create_download_dir
     _download_vault
     _download_kafka
@@ -301,12 +301,14 @@ _start_kafka() {
     mkdir -p $KAFKA_HOME/logs
 
     if [ "${USE_TMUX}" == "true" ]; then 
-        tmux new-window -n kafka -d 'sleep 1'
+        tmux new-window -n kafka -d 'sleep 10'
         for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
-                tmux split-window -d -t kafka "$KAFKA_BIN/kafka-server-start.sh $KAFKA_HOME/config/server-${NODE}.properties"
+                JMX_PORT=${NODE}9094 
+                tmux split-window -d -t kafka "bash -c 'export JMX_PORT=${JMX_PORT}; $KAFKA_BIN/kafka-server-start.sh $KAFKA_HOME/config/server-${NODE}.properties'"
         done
     else
         for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
+            export JMX_PORT=${NODE}9094
             $KAFKA_BIN/kafka-server-start.sh $KAFKA_HOME/config/server-${NODE}.properties 2>&1 > $KAFKA_HOME/logs/kafka-${NODE}.log &
         done
     fi
@@ -410,4 +412,20 @@ _start_consumer() {
 _start_producer() {
     $KAFKA_BIN/kafka-console-producer.sh --topic test --broker-list localhost:19093 \
         --producer.config $KAFKA_HOME/config/producer-1.properties
+}
+
+_start_manager() {
+    local ZK_HOST="localhost"
+    local NETWORK="--network=host"
+
+    if [ "${OS}" == "darwin" ]; then
+        ZK_HOST="docker.for.mac.host.internal"
+        NETWORK=""
+    fi
+
+    if [ "${USE_TMUX}" == "true" ]; then 
+        tmux new-window -n manager -d "docker run -it --rm -p 9000:9000 -e ZK_HOSTS=\"${ZK_HOST}:2181\" sheepkiller/kafka-manager"
+    else
+        docker run -it --rm ${NETWORK} -p 9000:9000 -e ZK_HOSTS="${ZK_HOST}:2181" sheepkiller/kafka-manager
+    fi
 }
