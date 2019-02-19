@@ -66,5 +66,5 @@ __Alternative__ - Kafka Clients in one window (tmux required)
 
 The CLI client will connect to the specified topic using the client name
 
-    scripts/start-producer.sh <topic> <client name>
+    scripts/start-consumer.sh <topic> <client name>
     scripts/start-producer.sh <topic> <client name>
