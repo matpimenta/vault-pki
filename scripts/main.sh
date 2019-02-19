@@ -41,10 +41,15 @@ OS=$(_detect_os)
 
 _detect_tmux() {
     local TMUX_TEST=${TMUX:-}
+    local DISABLE_TMUX_TEST=${DISABLE_TMUX:-}
     if [ "$TMUX_TEST" == "" ]; then
         echo "false"
     else 
-        echo "true"
+        if [ "${DISABLE_TMUX_TEST}" == "true" ]; then
+            echo "false"
+        else
+            echo "true"
+        fi
     fi
 }
 
@@ -292,7 +297,7 @@ _configure_kafka_acl() {
     done
 
     $KAFKA_BIN/kafka-acls.sh --authorizer-properties zookeeper.connect=localhost:2181 \
-        --add --allow-principal User:CN=my-client.clients.kafka.acme.com \
+        --add --allow-principal User:CN=tenant-1.clients.kafka.acme.com \
         --operation ALL --topic '*' --group '*'
 }
 
@@ -340,7 +345,7 @@ _configure_producer() {
     _create_vault_token "kafka-client"
 
     vault write -field certificate kafka-int-ca/issue/kafka-client \
-    common_name=my-client.clients.kafka.acme.com format=pem_bundle > producer.pem
+    common_name=tenant-1.clients.kafka.acme.com format=pem_bundle > producer.pem
  
     openssl pkcs12 -inkey producer.pem -in producer.pem -name producer -export \
         -out producer.p12 -passin pass:${DEFAULT_PASSWORD} -passout pass:${DEFAULT_PASSWORD}
@@ -369,7 +374,7 @@ _configure_consumer() {
     _create_vault_token "kafka-client"
 
     vault write -field certificate kafka-int-ca/issue/kafka-client \
-    common_name=my-client.clients.kafka.acme.com format=pem_bundle > consumer.pem
+    common_name=tenant-1.clients.kafka.acme.com format=pem_bundle > consumer.pem
  
     openssl pkcs12 -inkey consumer.pem -in consumer.pem -name consumer -export \
         -out consumer.p12 -passin pass:${DEFAULT_PASSWORD} -passout pass:${DEFAULT_PASSWORD}
@@ -420,12 +425,12 @@ _start_manager() {
 
     if [ "${OS}" == "darwin" ]; then
         ZK_HOST="docker.for.mac.host.internal"
-        NETWORK=""
+        NETWORK="-p 9000:9000"
     fi
 
     if [ "${USE_TMUX}" == "true" ]; then 
-        tmux new-window -n manager -d "docker run -it --rm -p 9000:9000 -e ZK_HOSTS=\"${ZK_HOST}:2181\" sheepkiller/kafka-manager"
+        tmux new-window -n manager -d "docker run -it --rm ${NETWORK} -e ZK_HOSTS=\"${ZK_HOST}:2181\" sheepkiller/kafka-manager"
     else
-        docker run -it --rm ${NETWORK} -p 9000:9000 -e ZK_HOSTS="${ZK_HOST}:2181" sheepkiller/kafka-manager
+        docker run -it --rm ${NETWORK} -e ZK_HOSTS="${ZK_HOST}:2181" sheepkiller/kafka-manager
     fi
 }
