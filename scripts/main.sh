@@ -13,7 +13,7 @@ __base="$(basename ${__file} .sh)"
 __root="$(cd "$(dirname "${__dir}")" && pwd)"
 
 DOWNLOAD_HOME="${__root}/downloads"
-OS="linux"
+OS=""
 
 VAULT_VERSION="1.0.3"
 VAULT_BIN="${__root}/vault"
@@ -27,14 +27,37 @@ KAFKA_NODE_SIZE=3
 
 DEFAULT_PASSWORD=changeme
 
+_detect_os() {
+    local OUT="$(uname -s)"
+    local OS=
+    case "${OUT}" in
+        Linux*)     OS=linux;;
+        Darwin*)    OS=darwin;;
+        *)          OS="UNKNOWN:${OS}"
+    esac
+    echo "${OS}"
+}
+
+_detect_tmux() {
+    if [ "$TMUX" != "" ]; then
+        echo "true"
+    else 
+        echo "false"
+    fi
+}
+
+USE_TMUX=$(_detect_tmux)
+
 _clean_up() {
     rm -rf ${DOWNLOAD_HOME}
     rm -rf kafka_${SCALA_VERSION}-${KAFKA_VERSION}
-    rm vault 2> /dev/null && true
-    rm *.hcl *.pem *.csr *.jks *.log 2> /dev/null && true
+    rm -f vault
+    rm -f *.hcl *.pem *.csr *.jks *.log
 }
 
 _download_dependencies() {
+    OS=$(_detect_os)
+    echo "OS ${OS}"
     _create_download_dir
     _download_vault
     _download_kafka
@@ -87,11 +110,24 @@ _pause() {
 }
 
 _vault_start() {
-    ${VAULT_BIN} server -dev 2>&1 ${__root}/vault.log &
-    echo $! > ${VAULT_PID}
-    _pause
+    if [ "${USE_TMUX}" == "true" ]; then 
+        tmux new-window -d -n vault "${VAULT_BIN} server -dev"
+        tmux list-panes -t vault -F '#{pane_pid}' > ${VAULT_PID}
+    else 
+        ${VAULT_BIN} server -dev 2>&1 ${__root}/vault.log &
+        echo $! > ${VAULT_PID}
+    fi
     _vault_init_connection
+    _wait_for_vault
     ${VAULT_BIN} secrets list
+}
+
+_wait_for_vault() {
+    while ! vault status 2>&1 > /dev/null; do
+        echo "Waiting for Vault to be up..."
+        sleep 1
+    done
+    echo "Vault is up"
 }
 
 _vault_init_connection() {
@@ -100,7 +136,6 @@ _vault_init_connection() {
 }
 
 _vault_configure() {
-    sleep 10
     _vault_configure_root_ca
     _vault_configure_intermediary_ca
     _vault_configure_pki_roles
@@ -240,10 +275,13 @@ EOF
 }
 
 _start_zookeeper() {
-    cd $KAFKA_HOME
-    mkdir -p $KAFKA_HOME/logs
-    $KAFKA_BIN/zookeeper-server-start.sh config/zookeeper.properties 2>&1 > $KAFKA_HOME/logs/zookeeper.log &
-    sleep 10
+    if [ "${USE_TMUX}" == "true" ]; then 
+        tmux new-window -d -n zookepper "$KAFKA_BIN/zookeeper-server-start.sh $KAFKA_HOME/config/zookeeper.properties"
+    else 
+        mkdir -p $KAFKA_HOME/logs
+        $KAFKA_BIN/zookeeper-server-start.sh $KAFKA_HOME/config/zookeeper.properties 2>&1 > $KAFKA_HOME/logs/zookeeper.log &
+        sleep 10
+    fi
 }
 
 _configure_kafka_acl() {
@@ -261,9 +299,18 @@ _configure_kafka_acl() {
 _start_kafka() {
     cd $KAFKA_HOME
     mkdir -p $KAFKA_HOME/logs
-    for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
-        $KAFKA_BIN/kafka-server-start.sh config/server-${NODE}.properties 2>&1 > $KAFKA_HOME/logs/kafka-${NODE}.log &
-    done
+
+    if [ "${USE_TMUX}" == "true" ]; then 
+        tmux new-window -n kafka -d 'sleep 1'
+        for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
+                tmux split-window -d -t kafka "$KAFKA_BIN/kafka-server-start.sh $KAFKA_HOME/config/server-${NODE}.properties"
+        done
+    else
+        for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
+            $KAFKA_BIN/kafka-server-start.sh $KAFKA_HOME/config/server-${NODE}.properties 2>&1 > $KAFKA_HOME/logs/kafka-${NODE}.log &
+        done
+    fi
+
 }
 
 _shutdown_vault() {
@@ -274,16 +321,14 @@ _shutdown_vault() {
 }
 
 _shutdown_kafka() {
-    cd $KAFKA_HOME
     for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
-        $KAFKA_BIN//kafka-server-stop.sh config/server-${NODE}.properties &
+        $KAFKA_BIN/kafka-server-stop.sh $KAFKA_HOME/config/server-${NODE}.properties &
         rm -rf /tmp/kafka-logs-$NODE
     done
 }
 
 _shutdown_zookeeper() {
-    cd $KAFKA_HOME
-    $KAFKA_BIN/zookeeper-server-stop.sh config/zookeeper.properties
+    $KAFKA_BIN/zookeeper-server-stop.sh $KAFKA_HOME/config/zookeeper.properties
     rm -rf /tmp/zookeeper
 }
 
@@ -346,15 +391,23 @@ EOF
 
 }
 
-_start_consumer() {
-    cd $KAFKA_HOME
-    $KAFKA_BIN/kafka-console-consumer.sh --topic test --bootstrap-server localhost:19093 \
-        --consumer.config config/consumer-1.properties
+_start_consumer_and_producer() {
+    tmux new-window -n consumer-producer 'sleep 1'
+    if [ "${USE_TMUX}" == "true" ]; then 
+        tmux split-pane -d -t consumer-producer "$KAFKA_BIN/kafka-console-consumer.sh --topic test --bootstrap-server localhost:19093 \
+            --consumer.config $KAFKA_HOME/config/consumer-1.properties"
+        tmux split-pane -d -t consumer-producer "$KAFKA_BIN/kafka-console-producer.sh --topic test --broker-list localhost:19093 \
+            --producer.config $KAFKA_HOME/config/producer-1.properties"
+    fi
 
 }
 
+_start_consumer() {
+    $KAFKA_BIN/kafka-console-consumer.sh --topic test --bootstrap-server localhost:19093 \
+        --consumer.config $KAFKA_HOME/config/consumer-1.properties
+}
+
 _start_producer() {
-    cd $KAFKA_HOME
     $KAFKA_BIN/kafka-console-producer.sh --topic test --broker-list localhost:19093 \
-        --producer.config config/producer-1.properties
+        --producer.config $KAFKA_HOME/config/producer-1.properties
 }

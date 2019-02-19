@@ -4,6 +4,8 @@ Vault PKI - Demo
 Prerequisities
 --------------
 
+* Linux / MacOS
+* wget
 * Openssl or LibreSSL
 * Java >= 8
 
