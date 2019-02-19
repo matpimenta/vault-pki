@@ -15,16 +15,7 @@ __root="$(cd "$(dirname "${__dir}")" && pwd)"
 source ${__dir}/main.sh
 
 _main() {
-    if [ "$(_detect_tmux)" == "false" ]; then
-        echo "This command can only be used with tmux"
-        exit 1
-    fi
-
-    _configure_kafka_acl_client "$@"
-    _configure_producer "$@"
-    _configure_consumer "$@"
-    _start_consumer_and_producer "$@"
-    
+    _show_kafka_acls 
 }
 
 _main "$@"

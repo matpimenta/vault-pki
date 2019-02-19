@@ -15,6 +15,7 @@ __root="$(cd "$(dirname "${__dir}")" && pwd)"
 source ${__dir}/main.sh
 
 _main() {
+    _shutdown_manager
     _shutdown_vault
     _shutdown_kafka
     _shutdown_zookeeper

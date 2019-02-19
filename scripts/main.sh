@@ -23,7 +23,7 @@ SCALA_VERSION="2.11"
 KAFKA_HOME=${__root}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}
 KAFKA_BIN=${KAFKA_HOME}/bin
 KAFKA_NODE_SIZE=3
-KAFKA_DEFAULT_TOPIC=tenant-1
+KAFKA_DEFAULT_TOPIC=my-topic
 
 DEFAULT_PASSWORD=changeme
 
@@ -52,6 +52,11 @@ _detect_tmux() {
             echo "true"
         fi
     fi
+}
+
+_init_local_env() {
+    echo "export PATH=${__root}:${KAFKA_BIN}:${PATH}"
+    echo "export VAULT_ADDR='http://127.0.0.1:8200'"
 }
 
 USE_TMUX=$(_detect_tmux)
@@ -317,11 +322,25 @@ _configure_kafka_acl() {
             --operation ALL --topic '*' --cluster
     done
 
-    echo "---> Configuring Kafka ACL for Client tenant-1"
+}
+
+_configure_kafka_acl_client() {
+    local KAFKA_TOPIC=${1:-$(echo $KAFKA_DEFAULT_TOPIC)}
+    local CLIENT_NAME=${2:-$(echo "my-client")}
+
+    echo "---> Configuring Kafka ACL for Client ${CLIENT_NAME}"
 
     $KAFKA_BIN/kafka-acls.sh --authorizer-properties zookeeper.connect=localhost:2181 \
-        --add --allow-principal User:CN=tenant-1.clients.kafka.acme.com \
-        --operation ALL --topic ${KAFKA_DEFAULT_TOPIC} --group '*'
+        --add --allow-principal User:CN=${CLIENT_NAME}.clients.kafka.acme.com \
+        --operation ALL --topic ${KAFKA_TOPIC} --group '*'
+}
+
+_show_kafka_acls() {
+    echo "---> Kafka ACLs"
+
+    $KAFKA_BIN/kafka-acls.sh --authorizer-properties zookeeper.connect=localhost:2181 \
+        --list
+
 }
 
 _start_kafka() {
@@ -331,7 +350,8 @@ _start_kafka() {
     if [ "${USE_TMUX}" == "true" ]; then 
         tmux new-window -n kafka -d 'sleep 10'
         for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
-                local CMD="$KAFKA_BIN/kafka-server-start.sh $KAFKA_HOME/config/server-${NODE}.properties"
+                mkdir -p ${KAFKA_HOME}/logs/${NODE}
+                local CMD="KAFKA_OPTS=-Dkafka.logs.dir=${KAFKA_HOME}/logs/${NODE}/ $KAFKA_BIN/kafka-server-start.sh $KAFKA_HOME/config/server-${NODE}.properties"
                 tmux split-window -d -t kafka "bash -c '${CMD}'"
         done
     else
@@ -364,12 +384,18 @@ _shutdown_zookeeper() {
 
 _configure_producer() {
     _vault_init_connection
+    local CLIENT_NAME=${2:-$(echo "my-client")}
+
     cd $KAFKA_HOME
     _create_vault_token "kafka-client"
 
+    echo "---> Creating Certificate"
+
     vault write -field certificate kafka-int-ca/issue/kafka-client \
-    common_name=tenant-1.clients.kafka.acme.com format=pem_bundle > producer.pem
+        common_name=${CLIENT_NAME}.clients.kafka.acme.com format=pem_bundle > producer.pem
  
+    cat producer.pem |openssl x509 -text |grep -a10 Certificate:
+
     openssl pkcs12 -inkey producer.pem -in producer.pem -name producer -export \
         -out producer.p12 -passin pass:${DEFAULT_PASSWORD} -passout pass:${DEFAULT_PASSWORD}
  
@@ -393,12 +419,18 @@ EOF
 
 _configure_consumer() {
     _vault_init_connection
+    local CLIENT_NAME=${2:-$(echo "my-client")}
+
     cd $KAFKA_HOME
     _create_vault_token "kafka-client"
 
+    echo "---> Creating Certificate"
+
     vault write -field certificate kafka-int-ca/issue/kafka-client \
-    common_name=tenant-1.clients.kafka.acme.com format=pem_bundle > consumer.pem
+        common_name=${CLIENT_NAME}.clients.kafka.acme.com format=pem_bundle > consumer.pem
  
+    cat consumer.pem |openssl x509 -text |grep -a10 Certificate:
+
     openssl pkcs12 -inkey consumer.pem -in consumer.pem -name consumer -export \
         -out consumer.p12 -passin pass:${DEFAULT_PASSWORD} -passout pass:${DEFAULT_PASSWORD}
  
@@ -422,7 +454,7 @@ EOF
 }
 
 _start_consumer_and_producer() {
-    local KAFKA_TOPIC=${1:-$($KAFKA_DEFAULT_TOPIC)}
+    local KAFKA_TOPIC=${1:-$(echo $KAFKA_DEFAULT_TOPIC)}
     tmux new-window -n consumer-producer 'sleep 1'
     if [ "${USE_TMUX}" == "true" ]; then 
         tmux split-pane -d -t consumer-producer "$KAFKA_BIN/kafka-console-consumer.sh --topic ${KAFKA_TOPIC} --bootstrap-server localhost:19093 \
@@ -434,13 +466,21 @@ _start_consumer_and_producer() {
 }
 
 _start_consumer() {
-    local KAFKA_TOPIC=${1:-$($KAFKA_DEFAULT_TOPIC)}
+    local KAFKA_TOPIC=${1:-$(echo $KAFKA_DEFAULT_TOPIC)}
+    cd $KAFKA_HOME
+
+    echo "---> Starting Consumer on topic ${KAFKA_TOPIC}"
+
     $KAFKA_BIN/kafka-console-consumer.sh --topic ${KAFKA_TOPIC} --bootstrap-server localhost:19093 \
         --consumer.config $KAFKA_HOME/config/consumer-1.properties
 }
 
 _start_producer() {
-    local KAFKA_TOPIC=${1:-$($KAFKA_DEFAULT_TOPIC)}
+    local KAFKA_TOPIC=${1:-$(echo $KAFKA_DEFAULT_TOPIC)}
+    cd $KAFKA_HOME
+
+    echo "---> Starting Producer on topic ${KAFKA_TOPIC}"
+
     $KAFKA_BIN/kafka-console-producer.sh --topic ${KAFKA_TOPIC} --broker-list localhost:19093 \
         --producer.config $KAFKA_HOME/config/producer-1.properties
 }
@@ -455,8 +495,12 @@ _start_manager() {
     fi
 
     if [ "${USE_TMUX}" == "true" ]; then 
-        tmux new-window -n manager -d "docker run -it --rm ${NETWORK} -e ZK_HOSTS=\"${ZK_HOST}:2181\" sheepkiller/kafka-manager"
+        tmux new-window -n manager -d "docker run --name kafka-manager -it --rm ${NETWORK} -e ZK_HOSTS=\"${ZK_HOST}:2181\" sheepkiller/kafka-manager"
     else
-        docker run -it --rm ${NETWORK} -e ZK_HOSTS="${ZK_HOST}:2181" sheepkiller/kafka-manager
+        docker run --name kafka-manager -it --rm ${NETWORK} -e ZK_HOSTS="${ZK_HOST}:2181" sheepkiller/kafka-manager
     fi
+}
+
+_shutdown_manager() {
+    docker stop kafka-manager
 }

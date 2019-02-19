@@ -15,8 +15,7 @@ __root="$(cd "$(dirname "${__dir}")" && pwd)"
 source ${__dir}/main.sh
 
 _main() {
-    _configure_producer
-    _configure_consumer
+    _init_local_env 
 }
 
 _main "$@"

@@ -15,6 +15,7 @@ __root="$(cd "$(dirname "${__dir}")" && pwd)"
 source ${__dir}/main.sh
 
 _main() {
+    _configure_consumer "$@"
     _start_consumer "$@"
 }
 
