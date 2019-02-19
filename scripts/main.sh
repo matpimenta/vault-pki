@@ -364,8 +364,8 @@ _start_kafka() {
 }
 
 _shutdown_vault() {
+    echo "---> Stopping Vault"
     if [ -f "${VAULT_PID}" ]; then
-        echo "---> Vault"
         kill $(cat ${VAULT_PID})
         rm ${VAULT_PID}
     fi
@@ -380,7 +380,7 @@ _shutdown_kafka() {
 }
 
 _shutdown_zookeeper() {
-    echo "---> Zookeeper"
+    echo "---> Stopping Zookeeper"
     $KAFKA_BIN/zookeeper-server-stop.sh $KAFKA_HOME/config/zookeeper.properties
     rm -rf /tmp/zookeeper
 }
