@@ -196,7 +196,7 @@ _vault_configure_pki_roles() {
 
     vault write kafka-int-ca/roles/kafka-client \
         allowed_domains=clients.kafka.acme.com \
-        allow_subdomains=true max_ttl=72h
+        allow_subdomains=true max_ttl=1h
 
     echo "---> Configuring kafka-server PKI role"
 
@@ -348,11 +348,11 @@ _start_kafka() {
     mkdir -p $KAFKA_HOME/logs
 
     if [ "${USE_TMUX}" == "true" ]; then 
-        tmux new-window -n kafka -d 'sleep 10'
+        tmux new-window -n kafka -d 'sleep 1'
         for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
                 mkdir -p ${KAFKA_HOME}/logs/${NODE}
                 local CMD="KAFKA_OPTS=-Dkafka.logs.dir=${KAFKA_HOME}/logs/${NODE}/ $KAFKA_BIN/kafka-server-start.sh $KAFKA_HOME/config/server-${NODE}.properties"
-                tmux split-window -d -t kafka "bash -c '${CMD}'"
+                tmux split-window -h -d -t kafka "bash -c '${CMD}'"
         done
     else
         for NODE in $(seq 1 ${KAFKA_NODE_SIZE}); do
