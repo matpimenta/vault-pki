@@ -56,7 +56,7 @@ _detect_tmux() {
 
 _init_local_env() {
     echo "export PATH=${__root}:${KAFKA_BIN}:${PATH}"
-    echo "export VAULT_ADDR='http://127.0.0.1:8200'"
+    echo "export VAULT_ADDR=http://127.0.0.1:8200"
 }
 
 USE_TMUX=$(_detect_tmux)
